@@ -63,7 +63,7 @@ async def register(user_data: UserRegistrationRequestSchema, db: AsyncSession = 
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while processing the request.")
+            detail="An error occurred during user creation.")
 
 @router.post("/activate/", status_code=status.HTTP_200_OK)
 async def activate(data: UserActivationRequestSchema, db: AsyncSession = Depends(get_db)):
@@ -162,7 +162,7 @@ async def confirm_password_reset(data: PasswordResetConfirmSchema, db: AsyncSess
         await db.rollback()
         raise HTTPException(
             status_code=500,
-            detail="An error occurred while processing the request."
+            detail="An error occurred while resetting the password."
         )
 
     return {"message": "Password reset successfully."}
@@ -244,13 +244,15 @@ async def refresh_token(
             detail="User not found."
         )
 
-    new_access_token = jwt_manager.create_access_token(payload={"sub": str(db_token.user.id)})
+    current_user_id = db_token.user_id
+
+    new_access_token = jwt_manager.create_access_token(payload={"sub": str(current_user_id)})
+    new_refresh_token = jwt_manager.create_refresh_token(payload={"sub": str(current_user_id)})
 
     await db.delete(db_token)
-    new_refresh_token = jwt_manager.create_refresh_token(payload={"sub": str(db_token.user.id)})
 
     new_db_token = RefreshTokenModel.create(
-        user_id=db_token.user_id,
+        user_id=current_user_id,
         days_valid=settings.REFRESH_TOKEN_EXPIRE_DAYS,
         token=new_refresh_token
     )
