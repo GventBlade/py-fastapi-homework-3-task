@@ -35,9 +35,9 @@ class PasswordResetRequestSchema(BaseModel):
 class PasswordResetConfirmSchema(BaseModel):
     email: EmailStr
     token: str
-    new_password: str
+    password: str
 
-    @field_validator("new_password")
+    @field_validator("password")
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         return validate_password_strength(v)
