@@ -126,36 +126,34 @@ async def request_password_reset(data: PasswordResetRequestSchema, db: AsyncSess
 
 @router.post("/reset-password/complete/", status_code=status.HTTP_200_OK)
 async def confirm_password_reset(data: PasswordResetConfirmSchema, db: AsyncSession = Depends(get_db)):
+    # 1. Шукаємо токен
     query = select(PasswordResetTokenModel).options(joinedload(PasswordResetTokenModel.user)).where(PasswordResetTokenModel.token == data.token)
     result = await db.execute(query)
     token_record = result.scalar_one_or_none()
-    if token_record and token_record.user and token_record.user.email != data.email:
-        await db.delete(token_record)
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or token."
-        )
 
+    # 2. Якщо токена немає взагалі
     if not token_record:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or token."
-        )
+        raise HTTPException(status_code=400, detail="Invalid email or token.")
 
+    # 3. Перевірка на прострочення (робимо це ДО перевірки імейла)
     current_time = datetime.now(timezone.utc)
     token_expiry = cast(datetime, token_record.expires_at).replace(tzinfo=timezone.utc)
 
     if token_expiry < current_time:
         await db.delete(token_record)
         await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or token."
-        )
+        raise HTTPException(status_code=400, detail="Invalid email or token.")
 
+    # 4. Перевірка імейла (якщо не збігається — ВИДАЛЯЄМО токен, як просив ментор)
+    if not token_record.user or token_record.user.email != data.email:
+        await db.delete(token_record)
+        await db.commit()
+        raise HTTPException(status_code=400, detail="Invalid email or token.")
+
+    # 5. Оновлення пароля (використовуємо сетер моделі, він сам захешує)
     token_record.user.password = data.password
 
+    # 6. Видаляємо використаний токен
     await db.delete(token_record)
 
     try:
@@ -163,7 +161,7 @@ async def confirm_password_reset(data: PasswordResetConfirmSchema, db: AsyncSess
     except SQLAlchemyError:
         await db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="An error occurred while processing the request."
         )
 
