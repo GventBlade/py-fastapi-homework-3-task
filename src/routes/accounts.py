@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload
 
-from config import get_jwt_auth_manager, settings
+from config import get_jwt_auth_manager, BaseAppSettings, get_settings
 from database import (
     get_db,
     UserModel,
@@ -172,7 +172,8 @@ async def confirm_password_reset(data: PasswordResetConfirmSchema, db: AsyncSess
 async def login(
     data: UserLoginRequestSchema,
     db: AsyncSession = Depends(get_db),
-    jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager)
+    jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
+    settings: BaseAppSettings = Depends(get_settings)
 ):
     query = select(UserModel).where(UserModel.email == data.email)
     result = await db.execute(query)
@@ -216,16 +217,19 @@ async def login(
 async def refresh_token(
     data: TokenRefreshRequestSchema,
     db: AsyncSession = Depends(get_db),
-    jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager)
+    jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
+    settings: BaseAppSettings = Depends(get_settings)
 ):
     try:
         payload = jwt_manager.decode_refresh_token(data.refresh_token)
-        token_user_id = payload.get("sub")
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token has expired."
-        )
+    except Exception:  # Тут ментор радить бути точнішим, але 401/400 має залишитися
+        raise HTTPException(status_code=400, detail="Invalid or expired token.")
+
+    token_user_id = payload.get("sub")
+
+    if not token_user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload.")
+
 
     query = select(RefreshTokenModel).options(joinedload(RefreshTokenModel.user)).where(
         RefreshTokenModel.token == data.refresh_token)
